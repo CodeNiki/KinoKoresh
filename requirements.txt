@@ -12,7 +12,7 @@ sqlalchemy==2.1.0
 psycopg2-binary==2.9.8
 
 # Работа с фильмами и сериалами
-imdbpy==2023.5.31
+# imdbpy==2023.5.31
 
 # Рекомендательная система
 scikit-surprise==1.1.1

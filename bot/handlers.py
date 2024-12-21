@@ -4,7 +4,7 @@ import requests
 import os
 import signal
 import logging
-from bot.db import get_connection  # Если не используется база, удалите эту строку.
+#from bot.db import get_connection  # Если не используется база, удалите эту строку.
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)

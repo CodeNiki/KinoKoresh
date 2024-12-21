@@ -4,7 +4,8 @@ import requests
 import os
 import signal
 import logging
-#from bot.db import get_connection  # Если не используется база, удалите эту строку.
+import time
+import json
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -18,66 +19,109 @@ API_URL = "http://127.0.0.1:8000/recommendations"
 
 # Главное меню
 MAIN_MENU = [
-    ["Пройти анкету заново", "Получить базовые рекомендации"],
+    ["Пройти анкету заново", "Получить базовые рекомендации", "Оценить фильм", "Комплексное оценивание фильма"],
 ]
 
-async def set_main_menu(application):
-    """Устанавливает главное меню кнопок."""
-    await application.bot.set_my_commands([
-        ("restart_survey", "Пройти анкету заново"),
-        ("basic_recommendations", "Получить базовые рекомендации"),
-    ])
+# Ограничение доступа
+REQUEST_LIMIT = 5
+REQUEST_INTERVAL = 60  # секунд
+user_requests = {}
+
+# Файл для хранения состояния пользователей
+USER_STATE_FILE = 'user_states.json'
+
+def load_user_states():
+    if os.path.exists(USER_STATE_FILE):
+        with open(USER_STATE_FILE, 'r') as file:
+            return json.load(file)
+    return {}
+
+def save_user_states(user_states):
+    with open(USER_STATE_FILE, 'w') as file:
+        json.dump(user_states, file)
+
+user_states = load_user_states()
+
+def restrict_access(user_id):
+    current_time = time.time()
+    if user_id not in user_requests:
+        user_requests[user_id] = []
+
+    # Удаляем устаревшие запросы
+    user_requests[user_id] = [t for t in user_requests[user_id] if current_time - t < REQUEST_INTERVAL]
+
+    if len(user_requests[user_id]) >= REQUEST_LIMIT:
+        return False
+
+    user_requests[user_id].append(current_time)
+    return True
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Начало анкеты."""
-    logger.info("Start command received")
-    await update.message.reply_text("Привет! Я ваш бот. Давайте заполним анкету.\n\nКак вас зовут?")
-    return ASK_NAME
+    user_id = str(update.message.from_user.id)
+    if not restrict_access(user_id):
+        await update.message.reply_text("Слишком много запросов. Пожалуйста, попробуйте позже.")
+        return ConversationHandler.END
 
-async def ask_surname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Спросить фамилию."""
-    context.user_data['name'] = update.message.text
-    await update.message.reply_text("Отлично! Теперь напишите вашу фамилию:")
-    return ASK_SURNAME
+    if user_id in user_states:
+        await update.message.reply_text("С возвращением! Что вы хотите сделать?")
+        reply_markup = ReplyKeyboardMarkup(MAIN_MENU, resize_keyboard=True)
+        await update.message.reply_text("Что вы хотите сделать дальше?", reply_markup=reply_markup)
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text("Привет! Я ваш бот. Давайте заполним анкету.\n\nКак вас зовут?")
+        return ASK_NAME
 
-async def ask_age(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Спросить возраст."""
-    context.user_data['surname'] = update.message.text
-    await update.message.reply_text("Хорошо! Сколько вам лет?")
-    return ASK_AGE
+async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Обработка анкеты."""
+    user_id = str(update.message.from_user.id)
+    user_data = context.user_data
+    current_state = context.user_data.get('current_state', ASK_NAME)
 
-async def ask_genres(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Спросить предпочтительные жанры."""
-    context.user_data['age'] = update.message.text
-    await update.message.reply_text("Какие ваши любимые жанры фильмов? (например, комедия, драма):")
-    return ASK_GENRES
+    if current_state == ASK_NAME:
+        user_data['name'] = update.message.text
+        await update.message.reply_text("Отлично! Теперь напишите вашу фамилию:")
+        context.user_data['current_state'] = ASK_SURNAME
+        return ASK_SURNAME
 
-async def ask_actors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Спросить любимых актёров."""
-    context.user_data['genres'] = update.message.text
-    await update.message.reply_text("Напишите ваших любимых актеров (через запятую):")
-    return ASK_ACTORS
+    elif current_state == ASK_SURNAME:
+        user_data['surname'] = update.message.text
+        await update.message.reply_text("Хорошо! Сколько вам лет?")
+        context.user_data['current_state'] = ASK_AGE
+        return ASK_AGE
 
-async def ask_favorite_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Спросить любимый фильм."""
-    context.user_data['actors'] = update.message.text
-    await update.message.reply_text("Какой ваш любимый фильм?")
-    return ASK_FAVORITE_MOVIE
+    elif current_state == ASK_AGE:
+        user_data['age'] = update.message.text
+        await update.message.reply_text("Какие ваши любимые жанры фильмов? (например, комедия, драма):")
+        context.user_data['current_state'] = ASK_GENRES
+        return ASK_GENRES
 
-async def finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Завершить анкету и отправить точные рекомендации."""
-    context.user_data['favorite_movie'] = update.message.text
+    elif current_state == ASK_GENRES:
+        user_data['genres'] = update.message.text
+        await update.message.reply_text("Напишите ваших любимых актеров (через запятую):")
+        context.user_data['current_state'] = ASK_ACTORS
+        return ASK_ACTORS
 
-    # Отправляем точные рекомендации
-    await send_recommendations(update, context)
+    elif current_state == ASK_ACTORS:
+        user_data['actors'] = update.message.text
+        await update.message.reply_text("Какой ваш любимый фильм?")
+        context.user_data['current_state'] = ASK_FAVORITE_MOVIE
+        return ASK_FAVORITE_MOVIE
 
-    # Показываем главное меню
-    reply_markup = ReplyKeyboardMarkup(MAIN_MENU, resize_keyboard=True)
-    await update.message.reply_text(
-        "Что вы хотите сделать дальше?",
-        reply_markup=reply_markup
-    )
-    return ConversationHandler.END
+    elif current_state == ASK_FAVORITE_MOVIE:
+        user_data['favorite_movie'] = update.message.text
+
+        # Сохраняем состояние пользователя
+        user_states[user_id] = user_data
+        save_user_states(user_states)
+
+        # Отправляем точные рекомендации
+        await send_recommendations(update, context)
+
+        # Показываем главное меню
+        reply_markup = ReplyKeyboardMarkup(MAIN_MENU, resize_keyboard=True)
+        await update.message.reply_text("Что вы хотите сделать дальше?", reply_markup=reply_markup)
+        return ConversationHandler.END
 
 async def send_recommendations(update: Update, context: ContextTypes.DEFAULT_TYPE, basic=False) -> None:
     """Функция отправки рекомендаций."""
@@ -96,7 +140,7 @@ async def send_recommendations(update: Update, context: ContextTypes.DEFAULT_TYP
         }
 
     try:
-        response = requests.post(url, json=payload) if not basic else requests.get(url)
+        response = requests.post(url, json=payload)
         response.raise_for_status()
         data = response.json()
 
@@ -141,3 +185,27 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Останавливает бота."""
     await update.message.reply_text("Бот остановлен.")
     os.kill(os.getpid(), signal.SIGINT)
+
+async def rate_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Оценить фильм."""
+    await update.message.reply_text("Введите ID фильма и оценку (понравился/не понравился):")
+    # Здесь можно добавить логику для обработки оценки фильма
+
+async def complex_rate_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Комплексное оценивание фильма."""
+    await update.message.reply_text("Введите ID фильма и оценки по различным критериям (жанр, актеры, режиссер и т.д.):")
+    # Здесь можно добавить логику для обработки комплексной оценки фильма
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показать список команд."""
+    help_text = (
+        "Доступные команды:\n"
+        "/start - Начать анкету\n"
+        "/basic_recommendations - Получить базовые рекомендации\n"
+        "/restart_survey - Пройти анкету заново\n"
+        "/rate_movie - Оценить фильм\n"
+        "/complex_rate_movie - Комплексное оценивание фильма\n"
+        "/help - Показать список команд\n"
+        "/stop - Остановить бота"
+    )
+    await update.message.reply_text(help_text)

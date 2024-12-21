@@ -3,9 +3,8 @@ from telegram.ext import (
     ConversationHandler
 )
 from handlers import (
-    start, ask_surname, ask_age, ask_genres, ask_actors,
-    ask_favorite_movie, finish, show_basic_recommendations,
-    restart_survey, stop, set_main_menu
+    start, handle_survey, help_command, show_basic_recommendations,
+    restart_survey, stop, rate_movie, complex_rate_movie
 )
 from config import TOKEN
 
@@ -19,12 +18,12 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_surname)],
-            ASK_SURNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
-            ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_genres)],
-            ASK_GENRES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_actors)],
-            ASK_ACTORS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_favorite_movie)],
-            ASK_FAVORITE_MOVIE: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish)],
+            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_survey)],
+            ASK_SURNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_survey)],
+            ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_survey)],
+            ASK_GENRES: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_survey)],
+            ASK_ACTORS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_survey)],
+            ASK_FAVORITE_MOVIE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_survey)],
         },
         fallbacks=[CommandHandler("stop", stop)],
     )
@@ -33,9 +32,9 @@ def main():
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("basic_recommendations", show_basic_recommendations))
     application.add_handler(CommandHandler("restart_survey", restart_survey))
-
-    # Устанавливаем главное меню
-    application.post_init = set_main_menu
+    application.add_handler(CommandHandler("rate_movie", rate_movie))
+    application.add_handler(CommandHandler("complex_rate_movie", complex_rate_movie))
+    application.add_handler(CommandHandler("help", help_command))
 
     application.run_polling()
 
